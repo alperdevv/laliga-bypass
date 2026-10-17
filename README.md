@@ -1,5 +1,7 @@
 # laliga-guard
 
+[![CI](https://github.com/alperdevv/laliga-bypass/actions/workflows/ci.yml/badge.svg)](https://github.com/alperdevv/laliga-bypass/actions/workflows/ci.yml)
+
 Microservicio en Go que detecta cuándo tu web deja de ser accesible desde operadoras españolas por los bloqueos de IPs de Cloudflare durante los partidos de LaLiga y, solo cuando hay evidencias externas suficientes, cambia los registros DNS que tú autorices de `proxied=true` a `proxied=false` hasta que el bloqueo termina.
 
 **Arranca en `DRY_RUN=true` y así debe quedarse** hasta haber observado al menos una jornada de partidos y leer los [riesgos de DNS-only](#riesgos-de-activar-dns-only).
@@ -174,6 +176,16 @@ Cloudflare no ofrece permisos por registro, así que el token puede editar cualq
 
 El repositorio incluye un `Dockerfile` multi-stage (imagen final distroless, usuario sin privilegios) y un `docker-compose.yml` con reinicio automático, sistema de archivos de solo lectura, sin capacidades y con límites de memoria y CPU.
 
+### Imagen publicada
+
+Cada versión etiquetada (`v1.2.3`) publica una imagen multi-arquitectura (amd64 y arm64) en GitHub Container Registry, con SBOM y procedencia:
+
+```bash
+docker pull ghcr.io/alperdevv/laliga-bypass:latest
+```
+
+Si prefieres construirla tú, `docker compose up -d --build` o `docker build .` hacen lo mismo a partir del código.
+
 ### Con Docker Compose
 
 Es lo que hace el [inicio rápido](#inicio-rápido). El compose monta `./config.yaml` en `/etc/laliga-guard/config.yaml`, carga `.env` y crea el volumen `laliga-guard-data` para `/data`.
@@ -181,7 +193,6 @@ Es lo que hace el [inicio rápido](#inicio-rápido). El compose monta `./config.
 ### Con `docker run`
 
 ```bash
-docker build -t laliga-guard:1.0.0 --build-arg VERSION=1.0.0 .
 docker volume create laliga-guard-data
 docker run -d --name laliga-guard --restart unless-stopped \
   --env-file .env \
@@ -189,12 +200,12 @@ docker run -d --name laliga-guard --restart unless-stopped \
   -v laliga-guard-data:/data \
   --read-only --cap-drop ALL --security-opt no-new-privileges:true \
   --memory 64m --cpus 0.25 \
-  laliga-guard:1.0.0
+  ghcr.io/alperdevv/laliga-bypass:latest
 ```
 
 ### En cualquier otra plataforma
 
-Cualquier plataforma que construya un `Dockerfile` sirve. Lo único que necesita el contenedor:
+Cualquier plataforma que ejecute una imagen Docker sirve: usa `ghcr.io/alperdevv/laliga-bypass:latest` o deja que construya el `Dockerfile`. Lo único que necesita el contenedor:
 
 | Qué | Dónde |
 | --- | --- |
@@ -215,7 +226,7 @@ docker exec laliga-guard laliga-guard notify-test  # envía un aviso de prueba a
 
 ### Actualizar
 
-`git pull`, reconstruye la imagen y recrea el contenedor (`docker compose up -d --build`). El estado está en el volumen: si había una contingencia activa, el nuevo contenedor la retoma. El servicio se niega a arrancar con un estado corrupto o de versión desconocida en lugar de olvidar cambios pendientes.
+Con la imagen publicada: `docker compose pull && docker compose up -d`. Construyendo desde el código: `git pull && docker compose up -d --build`. El estado está en el volumen: si había una contingencia activa, el nuevo contenedor la retoma. El servicio se niega a arrancar con un estado corrupto o de versión desconocida en lugar de olvidar cambios pendientes.
 
 ### Pasar a modo automático
 
@@ -284,6 +295,8 @@ Condiciones necesarias para `DRY_RUN=false` (las tres primeras las comprueba el 
 ```bash
 go test -race ./...
 ```
+
+GitHub Actions ejecuta `gofmt`, `go vet` y los tests con `-race` en cada push y pull request, y comprueba que la imagen construye para amd64 y arm64. Las acciones están fijadas por SHA y Dependabot las mantiene al día.
 
 | Paquete | Qué cubre |
 | --- | --- |

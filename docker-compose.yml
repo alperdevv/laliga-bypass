@@ -4,7 +4,7 @@ services:
       context: .
       args:
         VERSION: "${VERSION:-dev}"
-    image: laliga-guard:1.0.0
+    image: ghcr.io/alperdevv/laliga-bypass:${VERSION:-latest}
     container_name: laliga-guard
     restart: unless-stopped
     env_file: .env
