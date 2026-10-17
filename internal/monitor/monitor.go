@@ -39,6 +39,7 @@ type CheckResult struct {
 	Outcome  Outcome       `json:"outcome"`
 	Status   int           `json:"status,omitempty"`
 	RemoteIP string        `json:"remote_ip,omitempty"`
+	Location string        `json:"location,omitempty"`
 	Latency  time.Duration `json:"latency"`
 	Error    string        `json:"error,omitempty"`
 }
@@ -109,6 +110,7 @@ func (c *Checker) check(ctx context.Context, ep config.Endpoint, via, dialAddr s
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	res.Status = resp.StatusCode
+	res.Location = resp.Header.Get("Location")
 	switch {
 	case slices.Contains(ep.ExpectedStatus, resp.StatusCode):
 		res.Outcome = OutcomeOK

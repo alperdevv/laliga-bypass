@@ -59,7 +59,13 @@ docker compose up -d --build
 docker compose logs -f laliga-guard
 ```
 
-`validate` hace solo lecturas: comprueba la configuración y que cada registro de Cloudflare coincide con lo esperado. Debe terminar con `Cloudflare read-only checks: OK`.
+`validate` hace solo lecturas y comprueba tres cosas:
+
+- que la configuración es válida,
+- que cada registro de Cloudflare coincide con lo esperado (`Cloudflare read-only checks: OK`),
+- que cada host sobreviviría a DNS-only (`DNS-only readiness checks: OK`). Falla si el host está protegido con Cloudflare Access, si la redirección solo existe en Cloudflare (el origen devuelve 404), si el certificado del origen no es válido para navegadores o si no se llega al origen.
+
+Los mismos avisos aparecen en los logs al arrancar el servicio.
 
 En los logs del primer ciclo verás `starting laliga-guard` con `"dry_run": true`, un `record verified` por registro y un `assessment_changed` por dominio con los motivos de cada fuente.
 
@@ -127,6 +133,8 @@ docker compose run --rm -T laliga-guard discover -domain example.com > config.ya
 Revisa el resultado: quita los hosts que no quieras gestionar, ajusta `expected_status` y comprueba `origin.address`. Listar zonas necesita el permiso Zone → Read. Sin él, usa `discover -zone-id <ID> -domain example.com`.
 
 ### Qué registros no conviene gestionar
+
+`validate` detecta los dos primeros casos y `discover` descarta los otros dos; aun así, conviene saberlo:
 
 - Hosts protegidos con **Cloudflare Access**: en DNS-only quedan abiertos sin login.
 - Hosts que solo existen como **redirección configurada en Cloudflare**: el origen no sabe responder y en DNS-only se rompen.
@@ -297,6 +305,7 @@ internal/cloudflare/   cliente API v4 (+ cftest: servidor simulado)
 internal/state/        persistencia JSON
 internal/notifier/     logs y webhook
 internal/discover/     generación de config a partir de las zonas
+internal/preflight/    comprobaciones de preparación para DNS-only
 ```
 
 ## Créditos y aviso

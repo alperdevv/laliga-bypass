@@ -24,6 +24,7 @@ import (
 	"github.com/alperdevv/laliga-bypass/internal/discover"
 	"github.com/alperdevv/laliga-bypass/internal/monitor"
 	"github.com/alperdevv/laliga-bypass/internal/notifier"
+	"github.com/alperdevv/laliga-bypass/internal/preflight"
 	"github.com/alperdevv/laliga-bypass/internal/sources"
 	"github.com/alperdevv/laliga-bypass/internal/state"
 )
@@ -129,6 +130,11 @@ func cmdRun(cfgPath string, log *slog.Logger) int {
 	logStartup(log, cfg, dns != nil)
 	if dns != nil {
 		checkRecords(ctx, cfg, dns, log)
+	}
+	for _, d := range cfg.Domains {
+		for _, f := range preflight.Check(ctx, &monitor.Checker{}, d) {
+			log.Warn("DNS-only readiness problem", "domain", d.Name, "level", f.Level, "url", f.URL, "problem", f.Message)
+		}
 	}
 
 	var dnsIface controller.DNS
@@ -317,8 +323,26 @@ func cmdValidate(cfgPath string, stdout io.Writer, log *slog.Logger) int {
 	} else {
 		fmt.Fprintln(stdout, "automatic mode prerequisites: OK")
 	}
+	pctx, pcancel := context.WithTimeout(context.Background(), time.Minute)
+	defer pcancel()
+	failed := false
+	for _, d := range cfg.Domains {
+		findings := preflight.Check(pctx, &monitor.Checker{}, d)
+		for _, f := range findings {
+			fmt.Fprintf(stdout, "%s: %s: %s\n", strings.ToUpper(string(f.Level)), f.URL, f.Message)
+		}
+		if preflight.HasErrors(findings) {
+			failed = true
+		}
+	}
+	if !failed {
+		fmt.Fprintln(stdout, "DNS-only readiness checks: OK")
+	}
 	if cfg.Secrets.CloudflareToken == "" {
 		fmt.Fprintln(stdout, "CF_API_TOKEN not set: skipping read-only Cloudflare checks")
+		if failed {
+			return 1
+		}
 		return 0
 	}
 	cfg.DryRun = true
@@ -334,6 +358,9 @@ func cmdValidate(cfgPath string, stdout io.Writer, log *slog.Logger) int {
 		return 1
 	}
 	fmt.Fprintln(stdout, "Cloudflare read-only checks: OK")
+	if failed {
+		return 1
+	}
 	return 0
 }
 
