@@ -19,8 +19,8 @@ Pasar el registro a DNS-only (nube gris) hace que los visitantes conecten direct
 Cada 30 segundos, por dominio:
 
 1. Comprueba cada endpoint dos veces: a través de Cloudflare y conectando directamente al origen con el mismo Host y SNI.
-2. Resuelve el dominio para saber qué IPs de Cloudflare está usando y las cruza con el feed de [hayahora.futbol](https://hayahora.futbol/), que mide bloqueos desde líneas domésticas de Movistar, Orange, Vodafone, DIGI y MásMóvil.
-3. Si hay indicios (hayahora marca las IPs del dominio, o algo falla en la ruta por Cloudflare), lanza una medición HTTP con [Globalping](https://globalping.io/) desde sondas en esas operadoras y desde grupos de control. Como mucho una cada 10 minutos.
+2. Averigua qué IPs de Cloudflare sirven el dominio y las cruza con el feed de [hayahora.futbol](https://hayahora.futbol/), que mide bloqueos desde líneas domésticas de Movistar, Orange, Vodafone, DIGI y MásMóvil. Cloudflare no da las mismas IPs a todo el mundo, así que usa tanto las que ve el servidor como las que obtienen las sondas de Globalping desde esas operadoras.
+3. Lanza una medición HTTP con [Globalping](https://globalping.io/) desde sondas en esas operadoras y desde grupos de control: cada 20 minutos y, además, en cuanto hay indicios (hayahora marca las IPs del dominio o algo falla en la ruta por Cloudflare). Como mucho una cada 10 minutos, unas 42 pruebas por hora en el peor caso; sin token hay 250.
 4. El detector clasifica el ciclo:
 
 | Veredicto | Significado | Acción |
@@ -91,7 +91,7 @@ Campos del YAML (ver [config.example.yaml](config.example.yaml)):
 | `sources.hayahora.max_feed_age` | `30m` | Un feed más antiguo se ignora |
 | `sources.hayahora.ignore_blocks_older_than` | `12h` | Bloqueos sin cambios desde hace más se consideran huérfanos |
 | `sources.globalping.min_interval` | `10m` | Mínimo entre mediciones por host |
-| `sources.globalping.baseline_interval` | `0s` | Medición periódica aunque no haya indicios. 0 la desactiva |
+| `sources.globalping.baseline_interval` | `20m` | Medición periódica aunque no haya indicios. Sirve para conocer las IPs que reciben los visitantes. 0 la desactiva |
 | `sources.globalping.targets` / `controls` | 5 operadoras / España (IONOS) y Alemania | Grupos de sondas con la sintaxis `magic` de Globalping |
 | `controller.min_failures` | `3` | Ciclos seguidos con bloqueo confirmado antes de actuar |
 | `controller.recovery_window` | `10m` | Tiempo continuo sin bloqueo antes de restaurar |

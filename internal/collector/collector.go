@@ -3,6 +3,7 @@ package collector
 import (
 	"context"
 	"log/slog"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strconv"
@@ -73,6 +74,10 @@ func (c *Collector) Collect(ctx context.Context, d config.Domain, ph Phase) dete
 	if len(hosts) > 0 {
 		gpHost = hosts[0]
 	}
+	if ph.Mode != state.ModeContingency && gpHost != "" {
+		ev.EdgeIPs = dedupe(append(slices.Clone(ev.EdgeIPs), c.visitorIPs(gpHost, origins)...))
+		hayaIPs = ev.EdgeIPs
+	}
 	if ph.Mode == state.ModeContingency {
 		hayaIPs = slices.Clone(ph.SavedEdgeIPs)
 		gpHost = d.CanaryHost
@@ -92,7 +97,41 @@ func (c *Collector) Collect(ctx context.Context, d config.Domain, ph Phase) dete
 	if c.Globalping != nil {
 		ev.Globalping = c.globalping(ctx, d, ph, gpHost, ev, origins)
 	}
+	if ph.Mode != state.ModeContingency && gpHost != "" {
+		merged := dedupe(append(slices.Clone(ev.EdgeIPs), c.visitorIPs(gpHost, origins)...))
+		if len(merged) != len(ev.EdgeIPs) {
+			c.Log.Info("tracking IPs seen by Spanish ISP probes", "domain", d.Name, "ips", merged)
+			ev.EdgeIPs = merged
+			if c.Hayahora != nil {
+				ev.Hayahora = c.hayahora(ctx, merged)
+			}
+		}
+	}
 	return ev
+}
+
+func (c *Collector) visitorIPs(host string, origins []string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cache := c.gp[host]
+	if cache == nil || cache.result == nil || !cache.result.Available {
+		return nil
+	}
+	if c.now().Sub(cache.result.MeasuredAt) > c.GPCfg.MaxResultAge {
+		return nil
+	}
+	var out []string
+	for _, g := range cache.result.Groups {
+		if g.Role != detector.RoleTarget {
+			continue
+		}
+		for _, ip := range g.ResolvedIPs {
+			if a, err := netip.ParseAddr(ip); err == nil {
+				out = append(out, a.Unmap().String())
+			}
+		}
+	}
+	return without(dedupe(out), origins)
 }
 
 func (c *Collector) hayahora(ctx context.Context, ips []string) *detector.HayahoraEvidence {

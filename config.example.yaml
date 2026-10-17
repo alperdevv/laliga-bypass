@@ -21,7 +21,7 @@ sources:
     enabled: true
     api_url: https://api.globalping.io
     min_interval: 10m
-    baseline_interval: 0s
+    baseline_interval: 20m
     max_result_age: 20m
     wait_timeout: 60s
     targets:

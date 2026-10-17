@@ -167,11 +167,12 @@ func Default() *Config {
 				Timeout:               30 * time.Second,
 			},
 			Globalping: GlobalpingConfig{
-				Enabled:      true,
-				APIURL:       "https://api.globalping.io",
-				MinInterval:  10 * time.Minute,
-				MaxResultAge: 20 * time.Minute,
-				WaitTimeout:  60 * time.Second,
+				Enabled:          true,
+				APIURL:           "https://api.globalping.io",
+				MinInterval:      10 * time.Minute,
+				BaselineInterval: 20 * time.Minute,
+				MaxResultAge:     20 * time.Minute,
+				WaitTimeout:      60 * time.Second,
 			},
 		},
 		Controller: ControllerConfig{

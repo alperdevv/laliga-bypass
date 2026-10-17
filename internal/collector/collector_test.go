@@ -23,6 +23,7 @@ type env struct {
 	site       *httptest.Server
 	feedBody   atomic.Value
 	gpCreates  atomic.Int32
+	gpResolved atomic.Value
 	collector  *collector.Collector
 	domain     config.Domain
 	clock      time.Time
@@ -33,6 +34,7 @@ func newEnv(t *testing.T) *env {
 	t.Helper()
 	e := &env{clock: time.Date(2026, 10, 17, 18, 0, 0, 0, time.UTC)}
 	e.siteStatus.Store(200)
+	e.gpResolved.Store("127.0.0.1")
 	e.site = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(int(e.siteStatus.Load()))
 	}))
@@ -49,17 +51,18 @@ func newEnv(t *testing.T) *env {
 			_, _ = fmt.Fprintf(w, `{"id":"m%d","probesCount":1}`, n)
 			return
 		}
-		_, _ = io.WriteString(w, `{"id":"m","status":"finished","results":[{"probe":{},"result":{"status":"finished","statusCode":200,"resolvedAddress":"127.0.0.1"}}]}`)
+		_, _ = fmt.Fprintf(w, `{"id":"m","status":"finished","results":[{"probe":{},"result":{"status":"finished","statusCode":200,"resolvedAddress":%q}}]}`, e.gpResolved.Load().(string))
 	}))
 	t.Cleanup(gp.Close)
 
 	hayaCfg := config.HayahoraConfig{Enabled: true, URL: feed.URL, RefreshInterval: time.Minute, MaxFeedAge: time.Hour}
 	gpCfg := config.GlobalpingConfig{
-		Enabled:     true,
-		APIURL:      gp.URL,
-		MinInterval: 10 * time.Minute,
-		Targets:     []config.ProbeGroup{{Name: "Movistar", Magic: "ES+AS3352", Limit: 1}},
-		Controls:    []config.ProbeGroup{{Name: "control", Magic: "Germany", Limit: 1}},
+		Enabled:      true,
+		APIURL:       gp.URL,
+		MinInterval:  10 * time.Minute,
+		MaxResultAge: 20 * time.Minute,
+		Targets:      []config.ProbeGroup{{Name: "Movistar", Magic: "ES+AS3352", Limit: 1}},
+		Controls:     []config.ProbeGroup{{Name: "control", Magic: "Germany", Limit: 1}},
 	}
 	now := func() time.Time { return e.clock }
 	e.collector = &collector.Collector{
@@ -83,9 +86,13 @@ func newEnv(t *testing.T) *env {
 }
 
 func (e *env) setFeed(blockedISPs []string) {
+	e.setFeedFor("127.0.0.1", blockedISPs)
+}
+
+func (e *env) setFeedFor(ip string, blockedISPs []string) {
 	var changes []string
 	for _, isp := range blockedISPs {
-		changes = append(changes, fmt.Sprintf(`{"ip":"127.0.0.1","isp":%q,"stateChanges":[{"timestamp":"2026-10-17 17:00:00Z","state":true}]}`, isp))
+		changes = append(changes, fmt.Sprintf(`{"ip":%q,"isp":%q,"stateChanges":[{"timestamp":"2026-10-17 17:00:00Z","state":true}]}`, ip, isp))
 	}
 	if len(changes) == 0 {
 		changes = append(changes, `{"ip":"127.0.0.1","isp":"DIGI","stateChanges":[{"timestamp":"2026-10-17 17:00:00Z","state":false}]}`)
@@ -168,5 +175,40 @@ func TestRecoveryWaitsForVerifyDelayBeforeMeasuring(t *testing.T) {
 	ev := e.collector.Collect(ctx, e.domain, ph)
 	if e.gpCreates.Load() == 0 || ev.Globalping.MeasuredAt.Before(ph.VerifyNotBefore) {
 		t.Fatal("expected verification measurement after verify delay")
+	}
+}
+
+func TestIPsSeenBySpanishProbesAreCheckedAgainstHayahora(t *testing.T) {
+	e := newEnv(t)
+	e.collector.GPCfg.BaselineInterval = 20 * time.Minute
+	e.gpResolved.Store("198.51.100.7")
+	e.setFeedFor("198.51.100.7", []string{"Movistar", "DIGI"})
+	ctx := context.Background()
+
+	ev := e.collector.Collect(ctx, e.domain, collector.Phase{Mode: state.ModeNormal})
+	if e.gpCreates.Load() == 0 {
+		t.Fatal("baseline measurement not launched")
+	}
+	if !strings.Contains(strings.Join(ev.EdgeIPs, ","), "198.51.100.7") {
+		t.Fatalf("visitor-facing IP not tracked: %v", ev.EdgeIPs)
+	}
+	if got := ev.Hayahora.BlockedBy["198.51.100.7"]; len(got) != 2 {
+		t.Fatalf("hayahora not checked for visitor-facing IP: %+v", ev.Hayahora)
+	}
+
+	e.advance(time.Minute)
+	ev = e.collector.Collect(ctx, e.domain, collector.Phase{Mode: state.ModeNormal})
+	if len(ev.Hayahora.BlockedBy["198.51.100.7"]) != 2 {
+		t.Fatal("cached visitor-facing IPs not used on the next cycle")
+	}
+
+	e.advance(30 * time.Minute)
+	e.gpResolved.Store("203.0.113.10")
+	ev = e.collector.Collect(ctx, e.domain, collector.Phase{Mode: state.ModeNormal})
+	if strings.Contains(strings.Join(ev.EdgeIPs, ","), "203.0.113.10") {
+		t.Fatalf("origin IP must never be tracked as a Cloudflare IP: %v", ev.EdgeIPs)
+	}
+	if strings.Contains(strings.Join(ev.EdgeIPs, ","), "198.51.100.7") {
+		t.Fatalf("stale visitor-facing IP still tracked: %v", ev.EdgeIPs)
 	}
 }
