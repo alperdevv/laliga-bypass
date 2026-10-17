@@ -63,11 +63,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdRollback(*cfgPath, *domain, log)
 	case "discover":
 		return cmdDiscover(*domain, *zoneID, stdout, stderr)
+	case "notify-test":
+		return cmdNotifyTest(*cfgPath, stdout, log)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return 0
 	default:
-		fmt.Fprintf(stderr, "unknown command %q (run, validate, discover, status, healthcheck, rollback, version)\n", cmd)
+		fmt.Fprintf(stderr, "unknown command %q (run, validate, discover, notify-test, status, healthcheck, rollback, version)\n", cmd)
 		return 2
 	}
 }
@@ -537,6 +539,32 @@ func cmdDiscover(domain, zoneID string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprint(stdout, discover.Render(domains))
 	fmt.Fprintln(stderr, "\nconfig written to stdout. Remove the records you do not want managed, review expected_status and origin.address, then run validate.")
+	return 0
+}
+
+func cmdNotifyTest(cfgPath string, stdout io.Writer, log *slog.Logger) int {
+	cfg, err := loadConfig(cfgPath)
+	if err != nil {
+		fmt.Fprintln(stdout, "invalid configuration:", err)
+		return 1
+	}
+	if cfg.Secrets.WebhookURL == "" {
+		fmt.Fprintln(stdout, "WEBHOOK_URL is not set: alerts only go to the logs")
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	err = buildNotifier(cfg, log).Notify(ctx, notifier.Event{
+		Time:    time.Now(),
+		Level:   notifier.LevelWarning,
+		Kind:    "notification_test",
+		Message: "test alert from laliga-guard: if you can read this, alerts work",
+	})
+	if err != nil {
+		fmt.Fprintln(stdout, "webhook delivery failed:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "test alert delivered (format: %s)\n", cfg.Notifier.WebhookFormat)
 	return 0
 }
 

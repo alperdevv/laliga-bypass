@@ -80,7 +80,7 @@ Los secretos solo se leen del entorno; el YAML no debe contenerlos (tampoco cuan
 | `DRY_RUN` | `true` por defecto. Con `true` ningún registro se modifica nunca |
 | `CF_API_TOKEN` | API Token de Cloudflare |
 | `GLOBALPING_TOKEN` | Opcional. Sube la cuota de 250 a 500 tests/hora. Con uno o dos dominios no hace falta |
-| `WEBHOOK_URL` | Opcional. Alertas de nivel warning y critical |
+| `WEBHOOK_URL` | Opcional. Alertas de nivel warning y critical. Compruébalo con `notify-test` |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` |
 | `CONFIG_PATH` | Ruta del YAML. Por defecto `/etc/laliga-guard/config.yaml` |
 | `CONFIG_YAML` | Alternativa a montar el archivo: el contenido completo del YAML. Si está definida, tiene prioridad sobre `CONFIG_PATH` |
@@ -210,6 +210,7 @@ La imagen corre como el usuario 65532 y trae un `HEALTHCHECK` que falla si el se
 ```bash
 docker exec laliga-guard laliga-guard status     # estado persistido en JSON
 docker exec laliga-guard laliga-guard validate   # comprobaciones de solo lectura
+docker exec laliga-guard laliga-guard notify-test  # envía un aviso de prueba al webhook
 ```
 
 ### Actualizar
@@ -296,7 +297,7 @@ go test -race ./...
 ## Estructura
 
 ```
-cmd/laliga-guard/      CLI: run, validate, discover, status, healthcheck, rollback
+cmd/laliga-guard/      CLI: run, validate, discover, notify-test, status, healthcheck, rollback
 internal/monitor/      comprobaciones HTTP edge y origen
 internal/sources/      hayahora.futbol y Globalping
 internal/collector/    evidencias por ciclo
