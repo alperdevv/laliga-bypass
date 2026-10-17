@@ -3,7 +3,7 @@ services:
     build:
       context: .
       args:
-        VERSION: "1.0.0"
+        VERSION: "${VERSION:-dev}"
     image: laliga-guard:1.0.0
     container_name: laliga-guard
     restart: unless-stopped

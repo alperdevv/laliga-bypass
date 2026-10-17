@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -83,5 +84,30 @@ func TestNotifyTestFailsWithoutWebhook(t *testing.T) {
 	var out bytes.Buffer
 	if code := run([]string{"notify-test"}, &out, io.Discard); code == 0 {
 		t.Fatal("expected failure without WEBHOOK_URL")
+	}
+}
+
+func TestResolveVersion(t *testing.T) {
+	vcs := func(rev, modified string) *debug.BuildInfo {
+		return &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}, Settings: []debug.BuildSetting{
+			{Key: "vcs.revision", Value: rev}, {Key: "vcs.modified", Value: modified},
+		}}
+	}
+	tests := []struct {
+		name   string
+		linked string
+		info   *debug.BuildInfo
+		want   string
+	}{
+		{"ldflags wins", "v1.2.0", vcs("abcdef1234567890", "false"), "v1.2.0"},
+		{"go install module version", "dev", &debug.BuildInfo{Main: debug.Module{Version: "v1.3.0"}}, "v1.3.0"},
+		{"local build from git", "dev", vcs("abcdef1234567890", "false"), "dev-abcdef123456"},
+		{"local build with changes", "dev", vcs("abcdef1234567890", "true"), "dev-abcdef123456-dirty"},
+		{"no information", "dev", &debug.BuildInfo{Main: debug.Module{Version: "(devel)"}}, "dev"},
+	}
+	for _, tt := range tests {
+		if got := resolveVersion(tt.linked, tt.info, tt.info != nil); got != tt.want {
+			t.Errorf("%s: got %q want %q", tt.name, got, tt.want)
+		}
 	}
 }
