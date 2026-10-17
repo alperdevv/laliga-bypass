@@ -21,6 +21,7 @@ import (
 	"github.com/alperdevv/laliga-bypass/internal/config"
 	"github.com/alperdevv/laliga-bypass/internal/controller"
 	"github.com/alperdevv/laliga-bypass/internal/detector"
+	"github.com/alperdevv/laliga-bypass/internal/discover"
 	"github.com/alperdevv/laliga-bypass/internal/monitor"
 	"github.com/alperdevv/laliga-bypass/internal/notifier"
 	"github.com/alperdevv/laliga-bypass/internal/sources"
@@ -41,7 +42,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", envOr("CONFIG_PATH", "/etc/laliga-guard/config.yaml"), "path to the YAML config file")
-	domain := fs.String("domain", "", "domain to roll back (rollback only; empty = all)")
+	domain := fs.String("domain", "", "rollback: domain to roll back (empty = all); discover: zone name")
+	zoneID := fs.String("zone-id", "", "discover: zone ID (use with -domain when the token lacks Zone:Read)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -58,11 +60,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdHealthcheck(*cfgPath, stderr)
 	case "rollback":
 		return cmdRollback(*cfgPath, *domain, log)
+	case "discover":
+		return cmdDiscover(*domain, *zoneID, stdout, stderr)
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return 0
 	default:
-		fmt.Fprintf(stderr, "unknown command %q (run, validate, status, healthcheck, rollback, version)\n", cmd)
+		fmt.Fprintf(stderr, "unknown command %q (run, validate, discover, status, healthcheck, rollback, version)\n", cmd)
 		return 2
 	}
 }
@@ -436,6 +440,70 @@ func cmdRollback(cfgPath, domain string, log *slog.Logger) int {
 		log.Info("rollback done", "domain", name)
 	}
 	return code
+}
+
+func cmdDiscover(domain, zoneID string, stdout, stderr io.Writer) int {
+	lister, err := cloudflare.NewLister(os.Getenv("CF_API_BASE_URL"), os.Getenv("CF_API_TOKEN"), nil)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	var zones []cloudflare.Zone
+	switch {
+	case zoneID != "":
+		z, err := lister.Zone(ctx, zoneID)
+		if err != nil {
+			if domain == "" {
+				fmt.Fprintf(stderr, "cannot read zone %s (%v); without Zone:Read pass -domain with the zone name\n", zoneID, err)
+				return 1
+			}
+			z = cloudflare.Zone{ID: zoneID, Name: domain}
+		}
+		zones = []cloudflare.Zone{z}
+	default:
+		zones, err = lister.Zones(ctx, domain)
+		if err != nil {
+			fmt.Fprintf(stderr, "cannot list zones (%v); listing needs Zone:Read, otherwise use -zone-id ID -domain example.com\n", err)
+			return 1
+		}
+	}
+	if len(zones) == 0 {
+		fmt.Fprintln(stderr, "no zones visible with this token")
+		return 1
+	}
+
+	var domains []config.Domain
+	for _, z := range zones {
+		recs, err := lister.Records(ctx, z.ID)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: cannot list records: %v\n", z.Name, err)
+			continue
+		}
+		res := discover.Build(z, recs)
+		fmt.Fprintf(stderr, "\n# %s (%s)\n", z.Name, z.ID)
+		if res.Domain != nil {
+			for _, r := range res.Domain.Records {
+				fmt.Fprintf(stderr, "  + %-6s %-40s %s\n", r.ExpectedType, r.ExpectedName, r.ExpectedContent)
+			}
+			domains = append(domains, *res.Domain)
+		}
+		for _, sk := range res.Skipped {
+			fmt.Fprintf(stderr, "  - %-6s %-40s %s\n", sk.Type, sk.Name, sk.Reason)
+		}
+		for _, w := range res.Warnings {
+			fmt.Fprintln(stderr, "  ! "+w)
+		}
+	}
+	if len(domains) == 0 {
+		fmt.Fprintln(stderr, "\nno proxied web records found that DNS-only could help")
+		return 1
+	}
+	fmt.Fprint(stdout, discover.Render(domains))
+	fmt.Fprintln(stderr, "\nconfig written to stdout. Remove the records you do not want managed, review expected_status and origin.address, then run validate.")
+	return 0
 }
 
 func envOr(key, def string) string {

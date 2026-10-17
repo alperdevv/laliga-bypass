@@ -51,8 +51,9 @@ Requisitos: Docker con Compose, un dominio en Cloudflare y un API Token (ver [pe
 
 ```bash
 git clone https://github.com/alperdevv/laliga-bypass.git && cd laliga-bypass
-cp config.example.yaml config.yaml   # dominios, zone_id, record_id y origen
 cp .env.example .env                 # CF_API_TOKEN; deja DRY_RUN=true
+touch config.yaml
+docker compose run --rm -T laliga-guard discover -domain example.com > config.yaml
 docker compose run --rm laliga-guard validate
 docker compose up -d --build
 docker compose logs -f laliga-guard
@@ -107,17 +108,23 @@ Campos del YAML (ver [config.example.yaml](config.example.yaml)):
 
 Los umbrales no son un detector por sí mismos. Solo filtran evidencias que ya vienen de fuentes externas.
 
-### Encontrar `zone_id` y `record_id`
+### Generar la configuración con `discover`
 
-El `zone_id` aparece en el panel de Cloudflare, en la página de resumen del dominio. Para los `record_id`:
+No hace falta buscar a mano `zone_id` ni `record_id`. Con el token en `.env`:
 
 ```bash
-curl -s -H "Authorization: Bearer $CF_API_TOKEN" \
-  "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
-  | jq '.result[] | select(.type=="A" or .type=="AAAA" or .type=="CNAME") | {id, name, type, content, proxied}'
+docker compose run --rm -T laliga-guard discover > config.yaml               # todas las zonas del token
+docker compose run --rm -T laliga-guard discover -domain example.com > config.yaml
 ```
 
-Incluye todos los registros que sirven la web. Si `www` es un CNAME al dominio raíz, añade los dos: si solo cambias el raíz, `www` seguirá pasando por Cloudflare.
+`discover` solo hace lecturas. Escribe un `config.yaml` completo en la salida estándar y, por la de errores, la lista de registros incluidos (`+`), descartados con su motivo (`-`) y avisos (`!`). Descarta automáticamente:
+
+- registros que ya están en DNS-only,
+- comodines y registros de servicio (`_acme`, `_domainkey`...),
+- CNAME a otras plataformas (Pages, Workers, Tunnel, Railway, Vercel, Netlify, GitHub Pages...),
+- cualquier tipo que no sea A, AAAA o CNAME.
+
+Revisa el resultado: quita los hosts que no quieras gestionar, ajusta `expected_status` y comprueba `origin.address`. Listar zonas necesita el permiso Zone → Read. Sin él, usa `discover -zone-id <ID> -domain example.com`.
 
 ### Qué registros no conviene gestionar
 
@@ -143,7 +150,7 @@ Crea un API Token en *My Profile → API Tokens → Create Custom Token*:
 | Permiso | Necesario | Para qué |
 | --- | --- | --- |
 | Zone → DNS → Edit | Sí | Leer los registros y cambiar `proxied` |
-| Zone → Zone → Read | No | Comprobar que el `zone_id` corresponde al dominio. Sin él, solo se avisa |
+| Zone → Zone → Read | No | Que `discover` liste las zonas y que se compruebe que el `zone_id` corresponde al dominio. Sin él, solo se avisa |
 
 Nada más. Además:
 
@@ -280,7 +287,7 @@ go test -race ./...
 ## Estructura
 
 ```
-cmd/laliga-guard/      CLI: run, validate, status, healthcheck, rollback
+cmd/laliga-guard/      CLI: run, validate, discover, status, healthcheck, rollback
 internal/monitor/      comprobaciones HTTP edge y origen
 internal/sources/      hayahora.futbol y Globalping
 internal/collector/    evidencias por ciclo
@@ -289,6 +296,7 @@ internal/controller/   máquina de estados
 internal/cloudflare/   cliente API v4 (+ cftest: servidor simulado)
 internal/state/        persistencia JSON
 internal/notifier/     logs y webhook
+internal/discover/     generación de config a partir de las zonas
 ```
 
 ## Créditos y aviso

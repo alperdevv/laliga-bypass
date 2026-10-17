@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -115,6 +117,28 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/client/v4/"), "/")
 	switch {
+	case len(parts) == 1 && parts[0] == "zones" && r.Method == http.MethodGet:
+		var zones []cloudflare.Zone
+		for id, name := range s.zones {
+			if q := r.URL.Query().Get("name"); q == "" || q == name {
+				zones = append(zones, cloudflare.Zone{ID: id, Name: name, Status: "active"})
+			}
+		}
+		sort.Slice(zones, func(i, j int) bool { return zones[i].Name < zones[j].Name })
+		writePage(w, r, zones)
+	case len(parts) == 3 && parts[0] == "zones" && parts[2] == "dns_records" && r.Method == http.MethodGet:
+		if _, ok := s.zones[parts[1]]; !ok {
+			writeErr(w, http.StatusNotFound, 1001, "Invalid zone identifier")
+			return
+		}
+		var recs []cloudflare.Record
+		for key, rec := range s.records {
+			if strings.HasPrefix(key, parts[1]+"/") {
+				recs = append(recs, *rec)
+			}
+		}
+		sort.Slice(recs, func(i, j int) bool { return recs[i].Name+recs[i].Type < recs[j].Name+recs[j].Type })
+		writePage(w, r, recs)
 	case len(parts) == 2 && parts[0] == "zones" && r.Method == http.MethodGet:
 		name, ok := s.zones[parts[1]]
 		if !ok {
@@ -151,6 +175,27 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeErr(w, http.StatusNotFound, 7003, "Could not route to "+r.URL.Path)
 	}
+}
+
+func writePage[T any](w http.ResponseWriter, r *http.Request, items []T) {
+	perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+	if perPage <= 0 {
+		perPage = 20
+	}
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page <= 0 {
+		page = 1
+	}
+	total := (len(items) + perPage - 1) / perPage
+	start := min((page-1)*perPage, len(items))
+	end := min(start+perPage, len(items))
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success":     true,
+		"errors":      []any{},
+		"result":      items[start:end],
+		"result_info": map[string]int{"page": page, "per_page": perPage, "total_pages": total, "total_count": len(items)},
+	})
 }
 
 func writeOK(w http.ResponseWriter, result any) {

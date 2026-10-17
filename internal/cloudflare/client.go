@@ -144,9 +144,15 @@ func recordPath(zoneID, recordID string) string {
 }
 
 type envelope struct {
-	Success bool            `json:"success"`
-	Errors  []APIMessage    `json:"errors"`
-	Result  json.RawMessage `json:"result"`
+	Success    bool            `json:"success"`
+	Errors     []APIMessage    `json:"errors"`
+	Result     json.RawMessage `json:"result"`
+	ResultInfo resultInfo      `json:"result_info"`
+}
+
+type resultInfo struct {
+	Page       int `json:"page"`
+	TotalPages int `json:"total_pages"`
 }
 
 type APIMessage struct {
@@ -170,44 +176,50 @@ func (e *APIError) Error() string {
 }
 
 func (c *Client) call(ctx context.Context, method, path string, in, out any) error {
+	_, err := doCall(ctx, c.http, c.base, c.token, method, path, in, out)
+	return err
+}
+
+func doCall(ctx context.Context, hc *http.Client, base, token, method, path string, in, out any) (resultInfo, error) {
+	var info resultInfo
 	var body io.Reader
 	if in != nil {
 		buf, err := json.Marshal(in)
 		if err != nil {
-			return err
+			return info, err
 		}
 		body = bytes.NewReader(buf)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, base+path, body)
 	if err != nil {
-		return err
+		return info, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "github.com/alperdevv/laliga-bypass/1")
+	req.Header.Set("User-Agent", "laliga-guard/1")
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.http.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
-		return fmt.Errorf("cloudflare: %s %s: %w", method, path, err)
+		return info, fmt.Errorf("cloudflare: %s %s: %w", method, path, err)
 	}
 	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if err != nil {
-		return fmt.Errorf("cloudflare: reading %s %s response: %w", method, path, err)
+		return info, fmt.Errorf("cloudflare: reading %s %s response: %w", method, path, err)
 	}
 	var env envelope
 	if err := json.Unmarshal(data, &env); err != nil {
-		return &APIError{Method: method, Path: path, Status: resp.StatusCode, Errors: []APIMessage{{Message: "non-JSON response"}}}
+		return info, &APIError{Method: method, Path: path, Status: resp.StatusCode, Errors: []APIMessage{{Message: "non-JSON response"}}}
 	}
 	if resp.StatusCode/100 != 2 || !env.Success {
-		return &APIError{Method: method, Path: path, Status: resp.StatusCode, Errors: env.Errors}
+		return info, &APIError{Method: method, Path: path, Status: resp.StatusCode, Errors: env.Errors}
 	}
 	if out != nil {
 		if err := json.Unmarshal(env.Result, out); err != nil {
-			return fmt.Errorf("cloudflare: unexpected result for %s %s: %w", method, path, err)
+			return info, fmt.Errorf("cloudflare: unexpected result for %s %s: %w", method, path, err)
 		}
 	}
-	return nil
+	return env.ResultInfo, nil
 }

@@ -3,6 +3,7 @@ package cloudflare_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -160,5 +161,37 @@ func TestGetZone(t *testing.T) {
 	z, err := c.GetZone(context.Background(), zoneID)
 	if err != nil || z.Name != "example.com" {
 		t.Fatalf("zone %+v err %v", z, err)
+	}
+}
+
+func TestListerPaginatesZonesAndRecords(t *testing.T) {
+	srv := cftest.New(token)
+	defer srv.Close()
+	for i := range 120 {
+		id := fmt.Sprintf("z%03d", i)
+		srv.AddZone(id, fmt.Sprintf("site%03d.example", i))
+	}
+	for i := range 3 {
+		srv.AddRecord("z001", cloudflare.Record{ID: fmt.Sprintf("r%d", i), Name: fmt.Sprintf("h%d.site001.example", i), Type: "A", Content: "203.0.113.1", Proxied: true})
+	}
+	l, err := cloudflare.NewLister(srv.BaseURL(), token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	zones, err := l.Zones(ctx, "")
+	if err != nil || len(zones) != 120 {
+		t.Fatalf("zones %d err %v", len(zones), err)
+	}
+	one, err := l.Zones(ctx, "site007.example")
+	if err != nil || len(one) != 1 || one[0].ID != "z007" {
+		t.Fatalf("filtered %+v err %v", one, err)
+	}
+	recs, err := l.Records(ctx, "z001")
+	if err != nil || len(recs) != 3 {
+		t.Fatalf("records %d err %v", len(recs), err)
+	}
+	if srv.Count("PATCH") != 0 {
+		t.Fatal("lister must be read-only")
 	}
 }
