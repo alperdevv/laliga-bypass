@@ -1,0 +1,65 @@
+poll_interval: 30s
+dry_run: true
+listen: 127.0.0.1:8080
+state_file: /data/state.json
+resolver: 1.1.1.1:53
+
+detector:
+  min_isps: 2
+  min_confirming_sources: 2
+
+sources:
+  hayahora:
+    enabled: true
+    url: https://hayahora.futbol/estado/data.json
+    refresh_interval: 5m
+    max_feed_age: 30m
+    ignore_blocks_older_than: 12h
+    isps: []
+    timeout: 30s
+  globalping:
+    enabled: true
+    api_url: https://api.globalping.io
+    min_interval: 10m
+    baseline_interval: 0s
+    max_result_age: 20m
+    wait_timeout: 60s
+    targets:
+      - { name: Movistar, magic: "ES+AS3352", limit: 1 }
+      - { name: Orange, magic: "ES+AS12479", limit: 1 }
+      - { name: Vodafone, magic: "ES+AS12430", limit: 1 }
+      - { name: DIGI, magic: "ES+AS57269", limit: 1 }
+      - { name: MasMovil, magic: "ES+AS15704", limit: 1 }
+    controls:
+      - { name: control-es-ionos, magic: "ES+AS8560", limit: 1 }
+      - { name: control-de, magic: "Germany", limit: 1 }
+
+controller:
+  min_failures: 3
+  recovery_window: 10m
+  max_contingency: 60m
+  min_change_interval: 15m
+  verify_delay: 6m
+  verify_timeout: 45m
+  manual_hold: 6h
+
+notifier:
+  webhook_format: generic
+  timeout: 10s
+
+domains:
+  - name: example.com
+    zone_id: "ZONE_ID"
+    canary_host: ""
+    endpoints:
+      - url: https://example.com/
+        expected_status: [200, 301, 302]
+        timeout: 10s
+    origin:
+      address: "203.0.113.10:443"
+      insecure_skip_verify: false
+    records:
+      - record_id: "RECORD_ID"
+        expected_type: "A"
+        expected_name: "example.com"
+        expected_content: "203.0.113.10"

@@ -1,0 +1,28 @@
+services:
+  laliga-guard:
+    build:
+      context: .
+      args:
+        VERSION: "1.0.0"
+    image: laliga-guard:1.0.0
+    container_name: laliga-guard
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./config.yaml:/etc/laliga-guard/config.yaml:ro
+      - laliga-guard-data:/data
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    cpus: 0.25
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  laliga-guard-data:

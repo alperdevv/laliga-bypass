@@ -1,0 +1,6 @@
+/laliga-guard
+/bin/
+.env
+config.yaml
+/data/
+docs/

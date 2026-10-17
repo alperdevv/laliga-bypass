@@ -1,0 +1,7 @@
+.git
+.env
+config.yaml
+data
+bin
+docs
+*.md
