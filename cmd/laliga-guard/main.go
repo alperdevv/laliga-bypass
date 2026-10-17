@@ -86,6 +86,13 @@ func newLogger(w io.Writer) *slog.Logger {
 }
 
 func loadConfig(path string) (*config.Config, error) {
+	if inline := os.Getenv("CONFIG_YAML"); strings.TrimSpace(inline) != "" {
+		cfg, err := config.Parse([]byte(inline), os.Getenv)
+		if err != nil {
+			return nil, fmt.Errorf("CONFIG_YAML: %w", err)
+		}
+		return cfg, nil
+	}
 	return config.Load(path, os.Getenv)
 }
 

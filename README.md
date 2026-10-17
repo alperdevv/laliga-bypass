@@ -73,7 +73,7 @@ Sin Docker: `go test ./... && go run ./cmd/laliga-guard validate -config config.
 
 ## Configuración
 
-Los secretos solo se leen del entorno; el YAML no debe contenerlos.
+Los secretos solo se leen del entorno; el YAML no debe contenerlos (tampoco cuando va en `CONFIG_YAML`).
 
 | Variable | Uso |
 | --- | --- |
@@ -83,6 +83,7 @@ Los secretos solo se leen del entorno; el YAML no debe contenerlos.
 | `WEBHOOK_URL` | Opcional. Alertas de nivel warning y critical |
 | `LOG_LEVEL` | `debug`, `info`, `warn`, `error` |
 | `CONFIG_PATH` | Ruta del YAML. Por defecto `/etc/laliga-guard/config.yaml` |
+| `CONFIG_YAML` | Alternativa a montar el archivo: el contenido completo del YAML. Si está definida, tiene prioridad sobre `CONFIG_PATH` |
 
 Si se define `CF_API_KEY`, `CLOUDFLARE_API_KEY` o `CF_API_EMAIL` (Global API Key), el servicio se niega a arrancar.
 
@@ -198,7 +199,7 @@ Cualquier plataforma que construya un `Dockerfile` sirve. Lo único que necesita
 | Qué | Dónde |
 | --- | --- |
 | Variables de entorno | las de `.env.example` |
-| Archivo de configuración | montado en `/etc/laliga-guard/config.yaml` |
+| Configuración | archivo montado en `/etc/laliga-guard/config.yaml`, o su contenido en la variable `CONFIG_YAML` si la plataforma no permite montar archivos |
 | Volumen persistente | montado en `/data` |
 | Puertos y dominios | ninguno; el servicio no recibe tráfico |
 
